@@ -11,47 +11,6 @@ def dpll(clauses, assignment):
                     the second element is the assignment that satisfies the clauses.
     """
 
-    def is_satisfied(clauses, assignment):
-        """Check if all clauses are satisfied with the current assignment."""
-        for clause in clauses:
-            satisfied = False
-            for literal in clause:
-                var = abs(literal)
-                if var in assignment:
-                    val = assignment[var]
-                    if (literal > 0 and val) or (literal < 0 and not val):
-                        satisfied = True
-                        break
-            if not satisfied:
-                return False
-        return True
-
-    def unit_propagate(clauses, assignment):
-        """Perform unit propagation."""
-        while True:
-            unit_clauses = [clause for clause in clauses if len(clause) == 1]
-            if not unit_clauses:
-                break
-            for clause in unit_clauses:
-                literal = clause[0]
-                var = abs(literal)
-                val = literal > 0
-                assignment[var] = val
-                clauses = [c for c in clauses if literal not in c]
-                clauses = [[l for l in c if l != -literal] for c in clauses]
-        return clauses, assignment
-
-    def pure_literal_assign(clauses, assignment):
-        """Assign pure literals."""
-        all_literals = [literal for clause in clauses for literal in clause]
-        pure_literals = set(literal for literal in all_literals if -literal not in all_literals)
-        for literal in pure_literals:
-            var = abs(literal)
-            val = literal > 0
-            assignment[var] = val
-            clauses = [c for c in clauses if literal not in c]
-        return clauses, assignment
-
     # If all clauses are satisfied
     if is_satisfied(clauses, assignment):
         return True, assignment
@@ -97,6 +56,47 @@ def dpll(clauses, assignment):
     new_assignment[var] = False
     simplified_clauses = [[l for l in c if l != var] for c in clauses if -var not in c]
     return dpll(simplified_clauses, new_assignment)
+
+def is_satisfied(clauses, assignment):
+    """Check if all clauses are satisfied with the current assignment."""
+    for clause in clauses:
+        satisfied = False
+        for literal in clause:
+            var = abs(literal)
+            if var in assignment:
+                val = assignment[var]
+                if (literal > 0 and val) or (literal < 0 and not val):
+                    satisfied = True
+                    break
+        if not satisfied:
+            return False
+    return True
+
+def unit_propagate(clauses, assignment):
+    """Perform unit propagation."""
+    while True:
+        unit_clauses = [clause for clause in clauses if len(clause) == 1]
+        if not unit_clauses:
+            break
+        for clause in unit_clauses:
+            literal = clause[0]
+            var = abs(literal)
+            val = literal > 0
+            assignment[var] = val
+            clauses = [c for c in clauses if literal not in c]
+            clauses = [[l for l in c if l != -literal] for c in clauses]
+    return clauses, assignment
+
+def pure_literal_assign(clauses, assignment):
+    """Assign pure literals."""
+    all_literals = [literal for clause in clauses for literal in clause]
+    pure_literals = set(literal for literal in all_literals if -literal not in all_literals)
+    for literal in pure_literals:
+        var = abs(literal)
+        val = literal > 0
+        assignment[var] = val
+        clauses = [c for c in clauses if literal not in c]
+        return clauses, assignment
 
 # Test the DPLL algorithm with the given inputs
 clauses1 = [[1, 2, 3], [-1, 2, -3], [1, -2, 3], [-1, -2, -3]]
