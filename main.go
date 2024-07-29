@@ -34,9 +34,9 @@ func dpll(formula Formula, assignment Assignment) (bool, Assignment) {
 		return true, assignment
 	}
 
-	newFormula, assignment := unitPropagate(formula, assignment)
+	newFormula, newAssignment := unitPropagate(formula, assignment)
 
-	newFormula, assignment = pureLiteralAssignment(newFormula, assignment)
+	newFormula, newAssignment = pureLiteralAssignment(newFormula, newAssignment)
 
 	if isSatisfied(newFormula, assignment) {
 		return true, assignment
@@ -52,7 +52,7 @@ func dpll(formula Formula, assignment Assignment) (bool, Assignment) {
 	}
 
 	var simplifiedFormula Formula
-	newAssignment := maps.Clone(assignment)
+	newAssignment = maps.Clone(newAssignment)
 	newAssignment[selectedLiteral] = true
 	for _, clause := range newFormula {
 		if !slices.Contains(clause, selectedLiteral) {
@@ -113,8 +113,8 @@ func isSatisfied(formula Formula, assignment Assignment) bool {
 	for _, clause := range formula {
 		satisfied := false
 		for _, literal := range clause {
-			absVal := math.Abs(float64(literal))
-			if val, ok := assignment[Literal(absVal)]; ok {
+			absLiteral := math.Abs(float64(literal))
+			if val, ok := assignment[Literal(absLiteral)]; ok {
 				if (literal > 0 && val) || (literal < 0 && !val) {
 					satisfied = true
 					break
@@ -131,7 +131,8 @@ func isSatisfied(formula Formula, assignment Assignment) bool {
 
 // unitPropagate performs unit propagation on formula, based on curent assignments
 func unitPropagate(formula Formula, assignment Assignment) (Formula, Assignment) {
-	updatedFormula := slices.Clone(formula)
+	var updatedFormula Formula
+	updatedAssignment := maps.Clone(assignment)
 	for {
 		var unitClauses []Clause
 		for _, clause := range formula {
@@ -146,22 +147,24 @@ func unitPropagate(formula Formula, assignment Assignment) (Formula, Assignment)
 
 		for _, clause := range unitClauses {
 			literal := clause[0]
-			absVal := math.Abs(float64(literal))
-			assignment[Literal(absVal)] = literal > 0
+			absLiteral := math.Abs(float64(literal))
+			updatedAssignment[Literal(absLiteral)] = literal > 0
 			for _, c := range updatedFormula {
 				if !slices.Contains(c, literal) {
 					updatedFormula = append(updatedFormula, c)
 				}
-				if index := slices.Index(c, -literal); index >= 0 {
-					c = slices.Delete(c, index, index+1)
-					updatedFormula = append(updatedFormula, c)
-				}
-
 			}
+			var filteredFormula Formula
+			for _, c := range updatedFormula {
+				if index := slices.Index(c, -literal); index < 0 {
+					filteredFormula = append(filteredFormula, c)
+				}
+			}
+			updatedFormula = filteredFormula
 		}
 	}
 
-	return updatedFormula, assignment
+	return updatedFormula, updatedAssignment
 }
 
 /*
