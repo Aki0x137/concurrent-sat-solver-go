@@ -21,75 +21,6 @@ type Formula []Clause
 
 type Assignment map[Literal]bool
 
-func dpll(formula Formula, assignment Assignment) (bool, Assignment) {
-	if len(formula) == 0 {
-		return false, assignment
-	}
-
-	if !checkClauseValidity(formula) {
-		return false, assignment
-	}
-
-	if isSatisfied(formula, assignment) {
-		return true, assignment
-	}
-
-	newFormula, newAssignment := unitPropagate(formula, assignment)
-
-	newFormula, newAssignment = pureLiteralAssignment(newFormula, newAssignment)
-
-	if isSatisfied(newFormula, assignment) {
-		return true, assignment
-	}
-
-	if !checkClauseValidity(formula) {
-		return false, assignment
-	}
-
-	selectedLiteral, err := selectLiteral(newFormula)
-	if err != nil {
-		return false, assignment
-	}
-
-	var simplifiedFormula Formula
-	newAssignment = maps.Clone(newAssignment)
-	newAssignment[selectedLiteral] = true
-	for _, clause := range newFormula {
-		if !slices.Contains(clause, selectedLiteral) {
-			var updatedClause Clause
-			if index := slices.Index(clause, -selectedLiteral); index >= 0 {
-				updatedClause = slices.Delete(clause, index, index+1)
-			} else {
-				updatedClause = slices.Clone(clause)
-			}
-
-			simplifiedFormula = append(simplifiedFormula, updatedClause)
-		}
-	}
-
-	result, finalAsassignment := dpll(simplifiedFormula, newAssignment)
-	if result {
-		return result, finalAsassignment
-	}
-
-	simplifiedFormula = make(Formula, 0)
-	newAssignment = maps.Clone(assignment)
-	newAssignment[selectedLiteral] = false
-	for _, clause := range newFormula {
-		if !slices.Contains(clause, -selectedLiteral) {
-			var updatedClause Clause
-			if index := slices.Index(clause, selectedLiteral); index >= 0 {
-				updatedClause = slices.Delete(clause, index, index+1)
-			} else {
-				updatedClause = slices.Clone(clause)
-			}
-
-			simplifiedFormula = append(simplifiedFormula, updatedClause)
-		}
-	}
-	return dpll(simplifiedFormula, newAssignment)
-}
-
 func checkClauseValidity(formula Formula) bool {
 	for _, clause := range formula {
 		if len(clause) == 0 {
@@ -99,10 +30,13 @@ func checkClauseValidity(formula Formula) bool {
 	return true
 }
 
-func selectLiteral(formula Formula) (Literal, error) {
+func selectLiteral(formula Formula, assignment Assignment) (Literal, error) {
 	for _, clause := range formula {
-		for _, lit := range clause {
-			return lit, nil
+		for _, literal := range clause {
+			absLiteral := math.Abs(float64(literal))
+			if _, ok := assignment[Literal(absLiteral)]; !ok {
+				return literal, nil
+			}
 		}
 	}
 	return 0, errors.New("no literal found")
@@ -131,11 +65,11 @@ func isSatisfied(formula Formula, assignment Assignment) bool {
 
 // unitPropagate performs unit propagation on formula, based on curent assignments
 func unitPropagate(formula Formula, assignment Assignment) (Formula, Assignment) {
-	var updatedFormula Formula
+	updatedFormula := slices.Clone(formula)
 	updatedAssignment := maps.Clone(assignment)
 	for {
 		var unitClauses []Clause
-		for _, clause := range formula {
+		for _, clause := range updatedFormula {
 			if len(clause) == 1 {
 				unitClauses = append(unitClauses, clause)
 			}
@@ -149,18 +83,23 @@ func unitPropagate(formula Formula, assignment Assignment) (Formula, Assignment)
 			literal := clause[0]
 			absLiteral := math.Abs(float64(literal))
 			updatedAssignment[Literal(absLiteral)] = literal > 0
-			for _, c := range updatedFormula {
-				if !slices.Contains(c, literal) {
-					updatedFormula = append(updatedFormula, c)
-				}
-			}
+
 			var filteredFormula Formula
 			for _, c := range updatedFormula {
-				if index := slices.Index(c, -literal); index < 0 {
+				if !slices.Contains(c, literal) {
 					filteredFormula = append(filteredFormula, c)
 				}
 			}
-			updatedFormula = filteredFormula
+
+			var simplifiedFormula Formula
+			for _, c := range filteredFormula {
+				updatedClause := slices.Clone(c)
+				if index := slices.Index(updatedClause, -literal); index >= 0 {
+					updatedClause = slices.Delete(updatedClause, index, index+1)
+				}
+				simplifiedFormula = append(simplifiedFormula, updatedClause)
+			}
+			updatedFormula = simplifiedFormula
 		}
 	}
 
@@ -174,6 +113,8 @@ If a propositional variable occurs with only one polarity in the formula, it is 
 */
 func pureLiteralAssignment(formula Formula, assignment Assignment) (Formula, Assignment) {
 	updatedFormula := slices.Clone(formula)
+	updatedAssignment := maps.Clone(assignment)
+
 	allLiteralsSet := set.NewSet[Literal]()
 	for _, clauses := range formula {
 		for _, literal := range clauses {
@@ -190,17 +131,83 @@ func pureLiteralAssignment(formula Formula, assignment Assignment) (Formula, Ass
 	}
 
 	for _, literal := range pureLiterals.Values() {
-		absVal := math.Abs(float64(literal))
-		assignment[Literal(absVal)] = literal > 0
+		absLiteral := math.Abs(float64(literal))
+		updatedAssignment[Literal(absLiteral)] = literal > 0
 
+		var filteredFormula Formula
 		for _, clause := range updatedFormula {
-			if index := slices.Index(clause, literal); index >= 0 {
-				updatedFormula = slices.Delete(updatedFormula, index, index+1)
+			if index := slices.Index(clause, literal); index == -1 {
+				filteredFormula = append(filteredFormula, clause)
 			}
+		}
+		updatedFormula = filteredFormula
+	}
+
+	return updatedFormula, updatedAssignment
+}
+
+func dpll(formula Formula, assignment Assignment) (bool, Assignment) {
+	if len(formula) == 0 {
+		return false, assignment
+	}
+
+	if !checkClauseValidity(formula) {
+		return false, assignment
+	}
+
+	if isSatisfied(formula, assignment) {
+		return true, assignment
+	}
+
+	newFormula, newAssignment := unitPropagate(formula, assignment)
+
+	newFormula, newAssignment = pureLiteralAssignment(newFormula, newAssignment)
+
+	if isSatisfied(newFormula, newAssignment) {
+		return true, newAssignment
+	}
+
+	if !checkClauseValidity(formula) {
+		return false, assignment
+	}
+
+	selectedLiteral, err := selectLiteral(newFormula, newAssignment)
+	if err != nil {
+		return false, assignment
+	}
+
+	var simplifiedFormula Formula
+	assignment1 := maps.Clone(newAssignment)
+	assignment1[selectedLiteral] = true
+	for _, clause := range newFormula {
+		if !slices.Contains(clause, selectedLiteral) {
+			updatedClause := slices.Clone(clause)
+			if index := slices.Index(updatedClause, -selectedLiteral); index >= 0 {
+				updatedClause = slices.Delete(updatedClause, index, index+1)
+			}
+			simplifiedFormula = append(simplifiedFormula, updatedClause)
 		}
 	}
 
-	return updatedFormula, assignment
+	result, finalAssignment := dpll(simplifiedFormula, assignment1)
+	if result {
+		return result, finalAssignment
+	}
+
+	simplifiedFormula = make(Formula, 0)
+	assignment2 := maps.Clone(newAssignment)
+	assignment2[selectedLiteral] = false
+	for _, clause := range newFormula {
+		if !slices.Contains(clause, -selectedLiteral) {
+			updatedClause := slices.Clone(clause)
+			if index := slices.Index(updatedClause, selectedLiteral); index >= 0 {
+				updatedClause = slices.Delete(updatedClause, index, index+1)
+			}
+			simplifiedFormula = append(simplifiedFormula, updatedClause)
+		}
+	}
+	result, finalAssignment = dpll(simplifiedFormula, assignment2)
+	return result, finalAssignment
 }
 
 func main() {
@@ -236,8 +243,7 @@ func main() {
 		log.Fatal("Error while reading input. \nExiting...")
 	}
 
-	var assignments Assignment
-	sat, final_assignments := dpll(formula, assignments)
+	sat, final_assignments := dpll(formula, make(Assignment))
 
 	if sat {
 		fmt.Printf("The formula is satisfiable!\nAssignments %v", final_assignments)
