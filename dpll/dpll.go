@@ -5,6 +5,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"sync"
 
 	"github.com/Aki0x137/concurrent-sat-solver-go/set"
 )
@@ -38,7 +39,7 @@ func selectLiteral(formula Formula, assignment Assignment) (Literal, error) {
 	return 0, errors.New("no literal found")
 }
 
-// isSatisified checks if all clauses are satisfied with the current assignment
+// isSatisfied checks if all clauses are satisfied with the current assignment
 func isSatisfied(formula Formula, assignment Assignment) bool {
 	for _, clause := range formula {
 		satisfied := false
@@ -187,28 +188,39 @@ func Solve(formula Formula, assignment Assignment) (bool, Assignment) {
 		return false, assignment
 	}
 
-	ch := make(chan Assignment)
+	var wg sync.WaitGroup
+	ch := make(chan Assignment, 2)
 
-	assignment1 := maps.Clone(newAssignment)
-	assignment1[selectedLiteral] = true
+	wg.Add(2)
 
-	simplifiedFormula := simplifyFormula(newFormula, selectedLiteral)
+	go func() {
+		defer wg.Done()
+		assignment1 := maps.Clone(newAssignment)
+		assignment1[selectedLiteral] = true
+		simplifiedFormula := simplifyFormula(newFormula, selectedLiteral)
+		recursiveSolution(simplifiedFormula, assignment1, ch)
+	}()
 
-	go recursiveSolution(simplifiedFormula, assignment1, ch)
+	go func() {
+		defer wg.Done()
+		assignment2 := maps.Clone(newAssignment)
+		assignment2[selectedLiteral] = false
+		simplifiedFormula := simplifyFormula(newFormula, -selectedLiteral)
+		recursiveSolution(simplifiedFormula, assignment2, ch)
+	}()
 
-	assignment2 := maps.Clone(newAssignment)
-	assignment2[selectedLiteral] = false
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
 
-	simplifiedFormula = simplifyFormula(newFormula, -selectedLiteral)
-
-	go recursiveSolution(simplifiedFormula, assignment2, ch)
-
-	select {
-	case finalAssignment := <-ch:
-		return true, finalAssignment
-	default:
-		return false, assignment
+	for finalAssignment := range ch {
+		if isSatisfied(formula, finalAssignment) {
+			return true, finalAssignment
+		}
 	}
+
+	return false, assignment
 }
 
 func recursiveSolution(formula Formula, assignment Assignment, ch chan Assignment) {
@@ -222,7 +234,6 @@ func recursiveSolution(formula Formula, assignment Assignment, ch chan Assignmen
 
 	if isSatisfied(formula, assignment) {
 		ch <- assignment
-		close(ch)
 		return
 	}
 
@@ -232,7 +243,6 @@ func recursiveSolution(formula Formula, assignment Assignment, ch chan Assignmen
 
 	if isSatisfied(newFormula, newAssignment) {
 		ch <- newAssignment
-		close(ch)
 		return
 	}
 
@@ -245,17 +255,36 @@ func recursiveSolution(formula Formula, assignment Assignment, ch chan Assignmen
 		return
 	}
 
-	assignment1 := maps.Clone(newAssignment)
-	assignment1[selectedLiteral] = true
+	var wg sync.WaitGroup
+	subCh := make(chan Assignment, 2)
 
-	simplifiedFormula := simplifyFormula(newFormula, selectedLiteral)
+	wg.Add(2)
 
-	go recursiveSolution(simplifiedFormula, assignment1, ch)
+	go func() {
+		defer wg.Done()
+		assignment1 := maps.Clone(newAssignment)
+		assignment1[selectedLiteral] = true
+		simplifiedFormula := simplifyFormula(newFormula, selectedLiteral)
+		recursiveSolution(simplifiedFormula, assignment1, subCh)
+	}()
 
-	assignment2 := maps.Clone(newAssignment)
-	assignment2[selectedLiteral] = false
+	go func() {
+		defer wg.Done()
+		assignment2 := maps.Clone(newAssignment)
+		assignment2[selectedLiteral] = false
+		simplifiedFormula := simplifyFormula(newFormula, -selectedLiteral)
+		recursiveSolution(simplifiedFormula, assignment2, subCh)
+	}()
 
-	simplifiedFormula = simplifyFormula(newFormula, -selectedLiteral)
+	go func() {
+		wg.Wait()
+		close(subCh)
+	}()
 
-	go recursiveSolution(simplifiedFormula, assignment2, ch)
+	for finalAssignment := range subCh {
+		if isSatisfied(formula, finalAssignment) {
+			ch <- finalAssignment
+			return
+		}
+	}
 }
