@@ -2,9 +2,11 @@ package dpll
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"math"
 	"slices"
+	"sync"
 
 	"github.com/Aki0x137/concurrent-sat-solver-go/set"
 )
@@ -14,6 +16,12 @@ type Clause []Literal
 type Formula []Clause
 
 type Assignment map[Literal]bool
+
+type Result struct {
+	mu         *sync.RWMutex
+	satisfied  bool
+	assignment Assignment
+}
 
 // checkClauseValidity validates the formula
 func checkClauseValidity(formula Formula) bool {
@@ -187,31 +195,47 @@ func Solve(formula Formula, assignment Assignment) (bool, Assignment) {
 		return false, assignment
 	}
 
-	ch := make(chan Assignment)
+	ans := Result{&sync.RWMutex{}, false, Assignment{}}
+	var wg sync.WaitGroup
 
 	assignment1 := maps.Clone(newAssignment)
 	assignment1[selectedLiteral] = true
 
 	simplifiedFormula := simplifyFormula(newFormula, selectedLiteral)
 
-	go recursiveSolution(simplifiedFormula, assignment1, ch)
+	wg.Add(1)
+	go recursiveSolution(simplifiedFormula, assignment1, &wg, &ans)
 
 	assignment2 := maps.Clone(newAssignment)
 	assignment2[selectedLiteral] = false
 
 	simplifiedFormula = simplifyFormula(newFormula, -selectedLiteral)
 
-	go recursiveSolution(simplifiedFormula, assignment2, ch)
+	wg.Add(1)
+	go recursiveSolution(simplifiedFormula, assignment2, &wg, &ans)
 
-	select {
-	case finalAssignment := <-ch:
-		return true, finalAssignment
-	default:
+	wg.Wait()
+
+	fmt.Println("After wait")
+
+	if ans.satisfied {
+		return true, ans.assignment
+	} else {
 		return false, assignment
 	}
 }
 
-func recursiveSolution(formula Formula, assignment Assignment, ch chan Assignment) {
+func recursiveSolution(formula Formula, assignment Assignment, wg *sync.WaitGroup, ans *Result) {
+	defer wg.Done()
+
+	fmt.Println("INside recursive", assignment)
+
+	ans.mu.RLock()
+	if ans.satisfied {
+		return
+	}
+	ans.mu.RUnlock()
+
 	if len(formula) == 0 {
 		return
 	}
@@ -221,8 +245,10 @@ func recursiveSolution(formula Formula, assignment Assignment, ch chan Assignmen
 	}
 
 	if isSatisfied(formula, assignment) {
-		ch <- assignment
-		close(ch)
+		ans.mu.Lock()
+		ans.assignment = assignment
+		ans.satisfied = true
+		ans.mu.Unlock()
 		return
 	}
 
@@ -231,8 +257,10 @@ func recursiveSolution(formula Formula, assignment Assignment, ch chan Assignmen
 	newFormula, newAssignment = pureLiteralAssignment(newFormula, newAssignment)
 
 	if isSatisfied(newFormula, newAssignment) {
-		ch <- newAssignment
-		close(ch)
+		ans.mu.Lock()
+		ans.assignment = newAssignment
+		ans.satisfied = true
+		ans.mu.Unlock()
 		return
 	}
 
@@ -250,12 +278,14 @@ func recursiveSolution(formula Formula, assignment Assignment, ch chan Assignmen
 
 	simplifiedFormula := simplifyFormula(newFormula, selectedLiteral)
 
-	go recursiveSolution(simplifiedFormula, assignment1, ch)
+	wg.Add(1)
+	go recursiveSolution(simplifiedFormula, assignment1, wg, ans)
 
 	assignment2 := maps.Clone(newAssignment)
 	assignment2[selectedLiteral] = false
 
 	simplifiedFormula = simplifyFormula(newFormula, -selectedLiteral)
 
-	go recursiveSolution(simplifiedFormula, assignment2, ch)
+	wg.Add(1)
+	go recursiveSolution(simplifiedFormula, assignment2, wg, ans)
 }

@@ -300,8 +300,8 @@ func main() {
 	sat, final_assignments := dpll.Solve(formula, make(dpll.Assignment))
 
 	if sat {
-		fmt.Printf("The formula is satisfiable!\nAssignments %v", final_assignments)
+		fmt.Printf("The formula is satisfiable!\nAssignments %v\n", final_assignments)
 	} else {
-		fmt.Print("The formula can't be satisfied")
+		fmt.Println("The formula can't be satisfied")
 	}
 }
